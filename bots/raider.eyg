@@ -1,0 +1,180 @@
+// Raider: grow a small band, then march on the far corner and attack
+// anything hostile on the way. Harvests only when low on energy.
+
+let distance = (a, b) -> {
+  !int_add(
+    !int_absolute(!int_subtract(a.x, b.x)),
+    !int_absolute(!int_subtract(a.y, b.y))
+  )
+}
+
+// The direction that most reduces the distance from `from` to `to`.
+let towards = (from, to) -> {
+  let dx = !int_subtract(to.x, from.x)
+  let dy = !int_subtract(to.y, from.y)
+  match !int_compare(!int_absolute(dx), !int_absolute(dy)) {
+    Lt(_) -> {
+      match !int_compare(dy, 0) {
+        Lt(_) -> { North({}) }
+        | (_) -> { South({}) }
+      }
+    }
+    | (_) -> {
+      match !int_compare(dx, 0) {
+        Lt(_) -> { West({}) }
+        | (_) -> { East({}) }
+      }
+    }
+  }
+}
+
+// The closest cell whose contents `wanted` accepts, as Ok(cell) or Error({}).
+let nearest = (cells, me, wanted) -> {
+  !list_fold(cells, Error({}), (cell, best) -> {
+    match wanted(cell.what) {
+      True(_) -> {
+        match best {
+          Ok(b) -> {
+            match !int_compare(distance(me, cell), distance(me, b)) {
+              Lt(_) -> { Ok(cell) }
+              | (_) -> { best }
+            }
+          }
+          Error(_) -> { Ok(cell) }
+        }
+      }
+      False(_) -> { best }
+    }
+  })
+}
+
+let is_patch = match {
+  Patch(p) -> { match !int_compare(p.amount, 0) { Gt(_) -> { True({}) } | (_) -> { False({}) } } }
+  | (_) -> { False({}) }
+}
+let is_enemy = match {
+  Enemy(_) -> { True({}) }
+  | (_) -> { False({}) }
+}
+
+let adjacent = (me, cell) -> { !equal(distance(me, cell), 1) }
+
+// A free neighbouring cell to split into, preferring away from the corner.
+let free = (view, me) -> {
+  let taken = (x, y) -> {
+    !list_fold(view.cells, False({}), (cell, found) -> {
+      match !equal(cell.x, x) {
+        True(_) -> { match !equal(cell.y, y) { True(_) -> { True({}) } | (_) -> { found } } }
+        | (_) -> { found }
+      }
+    })
+  }
+  let inside = (x, y) -> {
+    match !int_compare(x, 0) {
+      Lt(_) -> { False({}) }
+      | (_) -> {
+        match !int_compare(y, 0) {
+          Lt(_) -> { False({}) }
+          | (_) -> {
+            match !int_compare(x, view.width) {
+              Lt(_) -> { match !int_compare(y, view.height) { Lt(_) -> { True({}) } | (_) -> { False({}) } } }
+              | (_) -> { False({}) }
+            }
+          }
+        }
+      }
+    }
+  }
+  let try = (dir, x, y, otherwise) -> {
+    match inside(x, y) {
+      True(_) -> { match taken(x, y) { False(_) -> { Ok(dir) } | (_) -> { otherwise({}) } } }
+      | (_) -> { otherwise({}) }
+    }
+  }
+  try(East({}), !int_add(me.x, 1), me.y, (_) -> {
+    try(South({}), me.x, !int_add(me.y, 1), (_) -> {
+      try(West({}), !int_subtract(me.x, 1), me.y, (_) -> {
+        try(North({}), me.x, !int_subtract(me.y, 1), (_) -> { Error({}) })
+      })
+    })
+  })
+}
+
+let random_direction = (_) -> {
+  match !int_compare(perform Random(2), 0) {
+    Eq(_) -> { match !int_compare(perform Random(2), 0) { Eq(_) -> { North({}) } | (_) -> { East({}) } } }
+    | (_) -> { match !int_compare(perform Random(2), 0) { Eq(_) -> { South({}) } | (_) -> { West({}) } } }
+  }
+}
+
+let view = perform Look({})
+let me = view.me
+let enemy_corner = {x: !int_subtract(view.width, 2), y: !int_subtract(view.height, 2)}
+
+let step_to = (target) -> {
+  match perform Move(towards(me, target)) {
+    Ok(_) -> { {} }
+    | (_) -> { perform Move(random_direction({})) }
+  }
+}
+
+let fight = (otherwise) -> {
+  match nearest(view.cells, me, is_enemy) {
+    Ok(enemy) -> {
+      match adjacent(me, enemy) {
+        True(_) -> { perform Attack(towards(me, enemy)) }
+        | (_) -> { step_to(enemy) }
+      }
+    }
+    | (_) -> { otherwise({}) }
+  }
+}
+
+// Only the first few raiders split; the rest keep their energy.
+let split = (otherwise) -> {
+  match !int_compare(me.id, 8) {
+    Gt(_) -> { otherwise({}) }
+    | (_) -> {
+      match !int_compare(me.energy, 10) {
+        Lt(_) -> { otherwise({}) }
+        | (_) -> {
+          match free(view, me) {
+            Ok(dir) -> { perform Split(dir) }
+            | (_) -> { otherwise({}) }
+          }
+        }
+      }
+    }
+  }
+}
+
+let refuel = (otherwise) -> {
+  let hungry = match !int_compare(me.id, 8) {
+    Gt(_) -> { match !int_compare(me.energy, 2) { Lt(_) -> { True({}) } | (_) -> { False({}) } } }
+    | (_) -> { True({}) }
+  }
+  match hungry {
+    True(_) -> {
+      match nearest(view.cells, me, is_patch) {
+        Ok(patch) -> {
+          match adjacent(me, patch) {
+            True(_) -> { perform Harvest(towards(me, patch)) }
+            | (_) -> { step_to(patch) }
+          }
+        }
+        | (_) -> { otherwise({}) }
+      }
+    }
+    | (_) -> { otherwise({}) }
+  }
+}
+
+let march = (_) -> {
+  let _ = match !equal(perform Random(20), 0) {
+    True(_) -> { perform Log(!string_append("raider marching from ", !int_to_string(me.x))) }
+    | (_) -> { {} }
+  }
+  step_to(enemy_corner)
+}
+
+fight((_) -> { split((_) -> { refuel(march) }) })

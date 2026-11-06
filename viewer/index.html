@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greens</title>
+<style>
+  :root {
+    --bg: #f6f5f0; --panel: #ffffff; --ink: #1d2320; --muted: #66706a; --line: #dcdcd4;
+    --wall: #3b4240; --floor: #ecebe4; --patch: #3f9a4f; --accent: #2f6f45;
+    --p0: #d1495b; --p1: #2e86ab; --p2: #e9a23b; --p3: #7b4fa0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151917; --panel: #1d2220; --ink: #e6ebe7; --muted: #95a09a; --line: #2f3633;
+      --wall: #59615e; --floor: #222826; --patch: #4fb862; --accent: #7fcf95; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
+  header span { color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 4px; image-rendering: pixelated; }
+  .controls { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .controls input[type=range] { flex: 1; min-width: 140px; }
+  button, select, input, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  textarea { width: 100%; min-height: 160px; font: 12px/1.4 ui-monospace, monospace; }
+  .score { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .score b { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; color: var(--muted); }
+  #logs { font: 12px/1.4 ui-monospace, monospace; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .hash { font: 11px ui-monospace, monospace; color: var(--muted); word-break: break-all; }
+  .list { max-height: 200px; overflow: auto; }
+  .list label, .list a { display: block; padding: 2px 0; }
+  a { color: var(--accent); }
+  .error { color: var(--p0); white-space: pre-wrap; }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  .row input[type=text], .row input[type=number] { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Greens</h1>
+  <span>Programs written in EYG play on the server. Every match can be replayed and checked.</span>
+</header>
+<main>
+  <div>
+    <section>
+      <canvas id="board" width="480" height="480"></canvas>
+      <div class="controls">
+        <button id="play">Play</button>
+        <button id="stepBack" title="Previous tick">◀</button>
+        <button id="stepFwd" title="Next tick">▶</button>
+        <input id="scrub" type="range" min="0" max="0" value="0">
+        <span class="num" id="tickLabel">tick 0</span>
+        <select id="speed"><option value="4">slow</option><option value="12" selected>normal</option><option value="40">fast</option></select>
+      </div>
+      <p class="hash" id="hash">Load a replay to watch it.</p>
+    </section>
+    <section>
+      <h2>Log</h2>
+      <div id="logs"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Score</h2>
+      <div id="scores"><span class="num">No replay loaded.</span></div>
+      <p class="num" id="outcome"></p>
+    </section>
+    <section>
+      <h2>Open a replay file</h2>
+      <input type="file" id="file" accept=".json,application/json">
+    </section>
+    <section id="serverPanel" hidden>
+      <h2>Matches</h2>
+      <div class="list" id="matches"></div>
+      <h2 style="margin-top:12px">Start a match</h2>
+      <div class="list" id="programs"></div>
+      <div class="row"><input type="number" id="seed" placeholder="seed (optional)"><button class="primary" id="start">Play</button></div>
+      <p class="error" id="matchError"></p>
+      <h2 style="margin-top:12px">Submit a program</h2>
+      <input type="text" id="progName" placeholder="name" style="width:100%">
+      <div class="row"><textarea id="progSource" placeholder="let view = perform Look({})&#10;perform Move(East({}))"></textarea></div>
+      <div class="row"><button class="primary" id="submit">Submit</button></div>
+      <p class="error" id="submitError"></p>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const playerColor = (p) => css(`--p${p}`);
+const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+let replay = null, tick = 0, playing = false, timer = null;
+
+function load(r) {
+  if (r.game !== "greens") throw new Error("Not a Greens replay");
+  replay = r;
+  tick = 0;
+  $("scrub").max = r.frames.length - 1;
+  const res = r.result;
+  $("outcome").textContent = res.draw ? (res.winners.length ? `Draw: ${res.winners.join(", ")}` : "Draw") : `Winner: ${res.winners[0]}`;
+  draw();
+}
+
+function draw() {
+  if (!replay) return;
+  const { width: w, height: h } = replay.rules;
+  const canvas = $("board");
+  const size = Math.floor(960 / Math.max(w, h));
+  canvas.width = w * size; canvas.height = h * size;
+  const g = canvas.getContext("2d");
+  const frame = replay.frames[tick];
+  g.fillStyle = css("--floor"); g.fillRect(0, 0, canvas.width, canvas.height);
+  replay.map.forEach((row, y) => [...row].forEach((c, x) => {
+    if (c === "#") { g.fillStyle = css("--wall"); g.fillRect(x * size, y * size, size, size); }
+  }));
+  replay.patchCells.forEach((ci, i) => {
+    const x = ci % w, y = Math.floor(ci / w), a = frame.patches[i] / replay.rules.patchMax;
+    g.fillStyle = css("--patch"); g.globalAlpha = 0.15 + 0.85 * a;
+    g.fillRect(x * size + 2, y * size + 2, size - 4, size - 4);
+    g.globalAlpha = 1;
+  });
+  for (const [id, player, x, y, hp, energy, action, dir, ok] of frame.bots) {
+    const cx = x * size + size / 2, cy = y * size + size / 2;
+    g.fillStyle = playerColor(player);
+    g.beginPath(); g.arc(cx, cy, size * 0.38, 0, Math.PI * 2); g.fill();
+    g.fillStyle = css("--panel");
+    g.font = `${Math.floor(size * 0.38)}px system-ui`; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(String(energy), cx, cy + 1);
+    for (let i = 0; i < hp; i++) { g.fillStyle = playerColor(player); g.fillRect(x * size + 3 + i * 5, y * size + 1, 4, 3); }
+    if (action === 3 && dir >= 0) {
+      const [dx, dy] = DIRS[dir];
+      g.strokeStyle = ok ? css("--p0") : css("--muted"); g.lineWidth = 2;
+      g.beginPath(); g.moveTo(cx + dx * size * 0.4, cy + dy * size * 0.4); g.lineTo(cx + dx * size * 0.9, cy + dy * size * 0.9); g.stroke();
+    }
+  }
+  $("scrub").value = tick;
+  $("tickLabel").textContent = `tick ${frame.tick}`;
+  $("hash").textContent = `state hash ${frame.hash}`;
+  const scores = replay.players.map((p, i) => {
+    const team = frame.bots.filter((b) => b[1] === i);
+    return `<div class="score"><span class="swatch" style="background:${playerColor(i)}"></span><b>${escape(p.name)}</b><span class="num">${team.length} bots · ${team.reduce((s, b) => s + b[5], 0)} energy</span></div>`;
+  });
+  $("scores").innerHTML = scores.join("");
+  const lines = [];
+  for (let t = Math.max(0, tick - 30); t <= tick; t++) {
+    for (const [p, id, msg] of replay.frames[t].logs) lines.push(`${t}  ${replay.players[p].name}#${id}  ${msg}`);
+  }
+  $("logs").textContent = lines.slice(-60).join("\n") || "Nothing logged recently.";
+}
+
+function escape(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+function setPlaying(on) {
+  playing = on && !!replay;
+  $("play").textContent = playing ? "Pause" : "Play";
+  clearInterval(timer);
+  if (playing) timer = setInterval(() => {
+    if (tick >= replay.frames.length - 1) return setPlaying(false);
+    tick++; draw();
+  }, 1000 / Number($("speed").value));
+}
+
+$("play").onclick = () => { if (replay && tick >= replay.frames.length - 1) tick = 0; setPlaying(!playing); };
+$("speed").onchange = () => setPlaying(playing);
+$("stepBack").onclick = () => { setPlaying(false); tick = Math.max(0, tick - 1); draw(); };
+$("stepFwd").onclick = () => { setPlaying(false); if (replay) tick = Math.min(replay.frames.length - 1, tick + 1); draw(); };
+$("scrub").oninput = (e) => { tick = Number(e.target.value); draw(); };
+$("file").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { load(JSON.parse(await f.text())); } catch (err) { $("hash").textContent = err.message; }
+};
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+
+// Server mode: list matches and programs when served by `greens serve`.
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json();
+  if (!res.ok) throw new Error([data.error, ...(data.errors ?? [])].join("\n"));
+  return data;
+}
+async function refresh() {
+  const [matches, programs] = await Promise.all([api("/api/matches"), api("/api/programs")]);
+  $("matches").innerHTML = matches.length ? matches.slice().reverse().map((m) =>
+    `<a href="#${m.id}" data-id="${m.id}">${escape(m.players.join(" v "))} · seed ${m.seed} · ${m.result.draw ? "draw" : escape(m.result.winners[0]) + " won"}</a>`).join("")
+    : `<span class="num">No matches yet.</span>`;
+  $("programs").innerHTML = programs.length ? programs.map((p) =>
+    `<label><input type="checkbox" value="${p.id}"> ${escape(p.name)} <span class="num">${escape(p.effects.join(", "))}</span></label>`).join("")
+    : `<span class="num">Submit at least two programs to start a match.</span>`;
+  for (const a of $("matches").querySelectorAll("a")) a.onclick = () => openMatch(a.dataset.id);
+}
+async function openMatch(id) {
+  setPlaying(false);
+  load(await api(`/api/matches/${id}`));
+}
+$("start").onclick = async () => {
+  $("matchError").textContent = "";
+  const ids = [...$("programs").querySelectorAll("input:checked")].map((i) => i.value);
+  const seed = $("seed").value === "" ? undefined : Number($("seed").value);
+  try {
+    $("start").disabled = true;
+    const m = await api("/api/matches", { programs: ids, seed });
+    await refresh();
+    location.hash = m.id;
+    await openMatch(m.id);
+  } catch (err) { $("matchError").textContent = err.message; }
+  finally { $("start").disabled = false; }
+};
+$("submit").onclick = async () => {
+  $("submitError").textContent = "";
+  try {
+    await api("/api/programs", { name: $("progName").value, source: $("progSource").value });
+    $("progSource").value = "";
+    await refresh();
+  } catch (err) { $("submitError").textContent = err.message; }
+};
+if (location.protocol.startsWith("http")) {
+  refresh().then(() => {
+    $("serverPanel").hidden = false;
+    if (location.hash.length > 1) openMatch(location.hash.slice(1)).catch(() => {});
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>

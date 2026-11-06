@@ -1,0 +1,13 @@
+{
+  "name": "greens",
+  "version": "0.1.0",
+  "description": "A fair programming game: players submit EYG programs, the server runs them.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "bin": { "greens": "bin/greens.js" },
+  "scripts": {
+    "test": "node --test",
+    "serve": "node bin/greens.js serve"
+  }
+}
