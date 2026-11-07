@@ -11,6 +11,8 @@
 import { createHash } from "node:crypto";
 import { Machine } from "../eyg/interpreter.js";
 import { check } from "../eyg/validate.js";
+import { parse } from "../eyg/parser.js";
+import { print, PrintError } from "../eyg/print.js";
 import { indexPrograms, freeze, thaw, measure } from "../eyg/snapshot.js";
 import * as v from "../eyg/value.js";
 import { DEFAULT_RULES, EFFECTS, DIRECTIONS } from "./rules.js";
@@ -24,15 +26,15 @@ const ACTION_CODES = { Wait: 0, Move: 1, Harvest: 2, Attack: 3, Split: 4 };
 const DIR_CODES = { North: 0, East: 1, South: 2, West: 3 };
 
 export class Match {
-  // players: [{name, source}], 2 to 4 of them.
+  // players: [{name, source}] or [{name, ir}], 2 to 4 of them.
   constructor({ players, seed = 1, rules = {} }) {
     if (players.length < 2 || players.length > 4) throw new Error("A match needs 2 to 4 players");
     this.rules = { ...DEFAULT_RULES, ...rules };
     this.seed = seed;
-    this.players = players.map(({ name, source }) => {
-      const result = check(source, { allowedEffects: EFFECTS, maxSourceBytes: this.rules.maxSourceBytes });
+    this.players = players.map(({ name, source, ir }) => {
+      const result = check(source ?? { ir }, { allowedEffects: EFFECTS, maxSourceBytes: this.rules.maxSourceBytes });
       if (!result.ok) throw new ProgramError(name, result.errors);
-      return { name, source, ir: result.ir };
+      return { name, source: source ?? textFor(result.ir), ir: result.ir };
     });
     this.index = indexPrograms(this.players.map((p) => p.ir));
     this.frames = frames(players.length);
@@ -397,7 +399,7 @@ export class Match {
       version: VERSION,
       seed: this.seed,
       rules: this.rules,
-      players: this.players.map(({ name, source }) => ({ name, source })),
+      players: this.players.map(recordProgram),
       map: render(this.grid, this.rules.width),
       patchCells: [...this.patches.keys()],
       frames: this.history,
@@ -417,7 +419,7 @@ export class Match {
       version: VERSION,
       seed: this.seed,
       rules: this.rules,
-      players: this.players.map(({ name, source }) => ({ name, source })),
+      players: this.players.map(recordProgram),
       tick: this.tick,
       nextId: this.nextId,
       hash: this.hash,
@@ -443,6 +445,27 @@ export class Match {
     match.lastActions = s.lastActions ? new Map(s.lastActions) : undefined;
     return match;
   }
+}
+
+// Replays and saves record a program as text when the text parses back to
+// exactly the same IR, which is the usual case and much smaller, and as IR
+// otherwise.
+function recordProgram({ name, source, ir }) {
+  return source !== null ? { name, source } : { name, ir };
+}
+
+function textFor(ir) {
+  try {
+    const text = print(ir);
+    return canonical(parse(text)) === canonical(ir) ? text : null;
+  } catch (e) {
+    if (e instanceof PrintError) return null;
+    throw e;
+  }
+}
+
+export function canonical(x) {
+  return JSON.stringify(x, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v));
 }
 
 export class ProgramError extends Error {

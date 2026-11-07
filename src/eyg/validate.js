@@ -41,14 +41,24 @@ export function analyse(ir) {
   return { performs: [...performs].sort(), handles: [...handles].sort(), builtins: [...builtins].sort(), references, nodes };
 }
 
+// A program arrives either as text or as JSON IR (from the structural
+// editor). Both end up as IR and go through the same checks.
+//   check(source, options)
+//   check({ir}, options)
 // Returns {ok: true, ir, effects} or {ok: false, errors: [...]}.
-export function check(source, { allowedEffects, maxSourceBytes = 65536, maxNodes = 20000 }) {
-  if (Buffer.byteLength(source, "utf8") > maxSourceBytes) return { ok: false, errors: [`Program is larger than ${maxSourceBytes} bytes`] };
+export function check(program, { allowedEffects, maxSourceBytes = 65536, maxNodes = 20000 }) {
   let ir;
-  try {
-    ir = parse(source);
-  } catch (e) {
-    return { ok: false, errors: [e.message] };
+  if (typeof program === "string") {
+    if (Buffer.byteLength(program, "utf8") > maxSourceBytes) return { ok: false, errors: [`Program is larger than ${maxSourceBytes} bytes`] };
+    try {
+      ir = parse(program);
+    } catch (e) {
+      return { ok: false, errors: [e.message] };
+    }
+  } else {
+    ir = program.ir;
+    const shape = validateShape(ir, maxNodes);
+    if (shape.length) return { ok: false, errors: shape };
   }
   const info = analyse(ir);
   const errors = [];
@@ -58,4 +68,65 @@ export function check(source, { allowedEffects, maxSourceBytes = 65536, maxNodes
   for (const p of info.performs) if (!allowedEffects.includes(p)) errors.push(`Effect ${p} is not available; allowed effects are ${allowedEffects.join(", ")}`);
   if (errors.length) return { ok: false, errors };
   return { ok: true, ir, effects: info.performs };
+}
+
+// The fields each IR node type must have, from the EYG spec. Values are
+// "label", "node", "string", "integer", "bytes" or "any" (for references,
+// which are rejected by the effect check with a clearer message).
+const SHAPES = {
+  v: { l: "label" },
+  f: { l: "label", b: "node" },
+  a: { f: "node", a: "node" },
+  l: { l: "label", v: "node", t: "node" },
+  x: { v: "bytes" },
+  i: { v: "integer" },
+  s: { v: "string" },
+  ta: {},
+  c: {},
+  z: {},
+  u: {},
+  n: {},
+  e: { l: "label" },
+  g: { l: "label" },
+  o: { l: "label" },
+  t: { l: "label" },
+  m: { l: "label" },
+  p: { l: "label" },
+  h: { l: "label" },
+  b: { l: "label" },
+  "#": {},
+};
+
+// Check untrusted JSON IR before anything else touches it.
+export function validateShape(ir, maxNodes = 20000) {
+  const errors = [];
+  const stack = [[ir, "program"]];
+  let count = 0;
+  while (stack.length && errors.length < 5) {
+    const [node, where] = stack.pop();
+    if (++count > maxNodes) return [`Program has more than ${maxNodes} nodes`];
+    if (!node || typeof node !== "object" || Array.isArray(node) || !Object.hasOwn(SHAPES, node["0"])) {
+      errors.push(`${where} is not an EYG expression`);
+      continue;
+    }
+    for (const [field, kind] of Object.entries(SHAPES[node["0"]])) {
+      const value = node[field];
+      const ok =
+        kind === "node"
+          ? value && typeof value === "object"
+          : kind === "label"
+            ? typeof value === "string" && value.length > 0 && !/\s/.test(value)
+            : kind === "string"
+              ? typeof value === "string"
+              : kind === "integer"
+                ? Number.isSafeInteger(value)
+                : kind === "bytes"
+                  ? typeof value?.["/"]?.bytes === "string"
+                  : true;
+      if (!ok) errors.push(`${where}: field "${field}" of a "${node["0"]}" node must be a ${kind}`);
+      else if (kind === "node") stack.push([value, `${where}.${field}`]);
+    }
+    if (node["0"] === "z" && node.c !== undefined && typeof node.c !== "string") errors.push(`${where}: a vacant comment must be a string`);
+  }
+  return errors;
 }

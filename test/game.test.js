@@ -147,3 +147,25 @@ test("look reports the world in the player's own frame", () => {
   assert.equal(logs[0], logs[1]);
   assert.match(logs[0], /x: 1, y: 1/);
 });
+
+test("programs sent as IR play, and replays keep IR the text syntax cannot express", () => {
+  // A bare cons, partially applied, has no text form.
+  const ir = { 0: "l", l: "push", v: { 0: "c" }, t: { 0: "a", f: { 0: "p", l: "Wait" }, a: { 0: "u" } } };
+  const players = [{ name: "ir", ir }, { name: "text", source: FORAGER }];
+  const match = new Match({ players, seed: 5, rules: { maxTicks: 30 } });
+  match.run();
+  const replay = JSON.parse(JSON.stringify(match.replay()));
+  assert.deepEqual(Object.keys(replay.players[0]), ["name", "ir"]);
+  assert.deepEqual(Object.keys(replay.players[1]), ["name", "source"]);
+  assert.equal(verify(replay).ok, true);
+
+  // IR that prints exactly is recorded as text.
+  const printable = new Match({ players: [{ name: "a", ir: JSON.parse(JSON.stringify(match.players[1].ir)) }, players[1]], seed: 5, rules: { maxTicks: 5 } });
+  assert.deepEqual(Object.keys(printable.replay().players[0]), ["name", "source"]);
+});
+
+test("malformed IR is rejected before play", () => {
+  for (const ir of [{ 0: "a", f: { 0: "v", l: "x" } }, { 0: "i", v: 1.5 }, { 0: "constructor" }, { 0: "v", l: "two words" }]) {
+    assert.throws(() => new Match({ players: [{ name: "bad", ir }, { name: "f", source: FORAGER }] }), ProgramError);
+  }
+});

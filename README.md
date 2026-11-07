@@ -4,7 +4,7 @@ Greens is a programming game in which players never send moves. Each player subm
 
 The game is designed so that fairness is a property of the server rather than a promise from the clients. There is no game client to modify, a program can only do what its effects allow, and every match can be replayed and checked by anyone.
 
-Requires Node 22 or later. There are no dependencies.
+Requires Node 22 or later. There are no dependencies. Rebuilding the browser editor needs Gleam; running the game does not.
 
 ```sh
 node bin/greens.js check bots/*.eyg
@@ -14,7 +14,13 @@ node bin/greens.js serve --port 8080 --data ./data   # then open http://127.0.0.
 npm test
 ```
 
-`run --watch` animates the match in the terminal. The viewer at `viewer/index.html` plays any replay file. When it is served by `greens serve`, it can also submit programs and start matches.
+`run --watch` animates the match in the terminal. The viewer at `viewer/index.html` plays any replay file. When it is served by `greens serve`, it can also submit programs, start matches and edit bots.
+
+## Editing bots in the browser
+
+The page served by `greens serve` includes EYG's structural editor, the same `morph` editor used on [eyg.run](https://eyg.run). Open a saved bot, or start from a template, and edit it with single-key commands; press `?` in the editor to list them. The editor type checks the program as you go, against the exact types of the effects Greens offers, so a typo such as `Move(Up({}))` or a misspelt field of `Look`'s result shows up before the bot is saved. Saving creates a new program, so replays of older matches keep pointing at the version that played. The text form of the program is shown under the editor.
+
+Programs from the editor are stored as JSON IR. `greens print bot.json` shows one as text, and `check` and `run` accept `.json` files as well as `.eyg`. The editor's source is in `editor/`; see its README for how to rebuild `viewer/editor.js`.
 
 ## Rules
 
@@ -30,13 +36,13 @@ Patches hold up to 12 energy and regrow one unit every 5 ticks. A colony is capp
 
 ## Writing a bot
 
-A program is an EYG expression; see the upstream [syntax guide](https://github.com/CrowdHailer/eyg-lang/blob/main/guides/syntax.md). It talks to the game only through these effects:
+A program is an EYG expression, written as text (see the upstream [syntax guide](https://github.com/CrowdHailer/eyg-lang/blob/main/guides/syntax.md)) or in the browser editor. It talks to the game only through these effects:
 
 | Effect | Argument | Returns | Ends the turn |
 | --- | --- | --- | --- |
 | `Look` | `{}` | `{tick, width, height, me: {id, x, y, hp, energy}, cells}` | no |
 | `Random` | positive integer `n` | integer in `0..n-1` | no |
-| `Log` | any value | `{}` | no |
+| `Log` | a string (the server also accepts any value) | `{}` | no |
 | `Move`, `Harvest`, `Attack`, `Split` | `North({})`, `East({})`, `South({})` or `West({})` | `Ok({})` or `Error(reason)` | yes |
 | `Wait` | `{}` | `Ok({})` | yes |
 
@@ -68,18 +74,20 @@ When a program finishes, the server starts it again for the next decision, withi
 | --- | --- |
 | `src/eyg/interpreter.js` | Step-metered CEK interpreter that follows the reference interpreter in eyg-lang |
 | `src/eyg/parser.js` | EYG text syntax to the JSON IR from the EYG spec |
-| `src/eyg/validate.js` | Effect and builtin checks before a program is accepted |
+| `src/eyg/print.js` | JSON IR back to text that parses to the same IR |
+| `src/eyg/validate.js` | Shape, effect and builtin checks before a program is accepted |
 | `src/eyg/snapshot.js` | Graph serialization of continuations and state-size measurement |
 | `src/game/match.js` | World, tick resolution, replays, save/load and verification |
 | `src/game/map.js` | Mirrored map generation and player frames |
 | `src/server.js` | HTTP API; matches run in worker threads with a time limit |
-| `viewer/index.html` | Replay viewer and match lobby |
+| `viewer/index.html` | Replay viewer, match lobby and bot editor |
+| `editor/` | Gleam source of the structural editor bundle, `viewer/editor.js` |
 
-The interpreter passes the upstream EYG evaluation suites in `test/spec`, copied unchanged from eyg-lang (see `test/spec/NOTICE`). The server's API is `POST /api/programs {name, source}`, `GET /api/programs`, `POST /api/matches {programs: [id, id], seed?}`, `GET /api/matches` and `GET /api/matches/:id`, which returns the replay.
+The interpreter passes the upstream EYG evaluation suites in `test/spec`, copied unchanged from eyg-lang (see `test/spec/NOTICE`). The server's API is `POST /api/programs {name, source}` or `{name, ir}`, `GET /api/programs`, `GET /api/programs/:id`, `POST /api/parse {source}`, `POST /api/print {ir}`, `POST /api/matches {programs: [id, id], seed?}`, `GET /api/matches` and `GET /api/matches/:id`, which returns the replay.
 
 ## Limitations
 
-The submission check is syntactic, not EYG's full type inference. It is exact for host effects, but a badly typed program is only found at run time, where it crashes its own bot. Running the upstream type checker at submission would catch this earlier.
+The server's submission check is syntactic, not EYG's full type inference. It is exact for host effects, but a badly typed program submitted as text is only found at run time, where it crashes its own bot. The browser editor does run the upstream type checker, so bots written there are checked as they are edited; the server does not yet require that check to pass.
 
 Nothing in the language can stop collusion between players or one person entering several programs into a free-for-all. Those are matchmaking problems.
 

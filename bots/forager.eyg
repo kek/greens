@@ -148,7 +148,7 @@ let harvest = (otherwise) -> {
         True(_) -> { perform Harvest(towards(me, patch)) }
         | (_) -> {
           match perform Move(towards(me, patch)) {
-            Ok(_) -> { {} }
+            Ok(_) -> { Ok({}) }
             | (_) -> { wander({}) }
           }
         }

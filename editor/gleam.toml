@@ -1,0 +1,16 @@
+name = "greens_editor"
+version = "0.1.0"
+target = "javascript"
+description = "The EYG structural editor, embedded in the Greens web UI"
+
+[javascript]
+typescript_declarations = false
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+gleam_json = ">= 3.1.0 and < 4.0.0"
+lustre = ">= 5.7.0 and < 6.0.0"
+eyg_ir = ">= 3.2.0 and < 4.0.0"
+eyg_analysis = ">= 3.1.0 and < 4.0.0"
+# Upstream's structural editor. build.sh checks out eyg-lang at a pinned commit.
+morph = { path = "vendor/eyg-lang/packages/morph" }

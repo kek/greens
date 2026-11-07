@@ -4,12 +4,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import { check } from "../src/eyg/validate.js";
+import { print } from "../src/eyg/print.js";
+import { typeErrors } from "../src/eyg/typecheck.js";
 import { Match, ProgramError, verify } from "../src/game/match.js";
 import { EFFECTS } from "../src/game/rules.js";
 import { startServer } from "../src/server.js";
 
 const USAGE = `Usage:
   greens check <bot.eyg>...                     validate programs and list their effects
+  greens print <bot.json>                       print a program saved as JSON IR as text
   greens run <a.eyg> <b.eyg> [c.eyg] [d.eyg]    play a match
         [--seed N] [--ticks N] [--replay out.json] [--watch]
   greens verify <replay.json>                   re-run a replay and compare every tick
@@ -33,6 +36,12 @@ const { values, positionals } = parseArgs({
 const [command, ...args] = positionals;
 const glyph = ["A", "B", "C", "D"];
 
+// Programs are text (.eyg) or JSON IR (.json), as saved by the editor.
+function program(file) {
+  const content = readFileSync(file, "utf8");
+  return file.endsWith(".json") ? { ir: JSON.parse(content) } : { source: content };
+}
+
 function board(replay, frame) {
   const rows = replay.map.map((r) => r.split(""));
   replay.patchCells.forEach((ci, i) => {
@@ -55,8 +64,13 @@ function main() {
     case "check": {
       let failed = false;
       for (const file of args) {
-        const r = check(readFileSync(file, "utf8"), { allowedEffects: EFFECTS });
-        if (r.ok) console.log(`${file}: ok, effects ${r.effects.join(", ") || "none"}`);
+        const p = program(file);
+        const r = check(p.source ?? p, { allowedEffects: EFFECTS });
+        if (r.ok) {
+          console.log(`${file}: ok, effects ${r.effects.join(", ") || "none"}`);
+          const errors = typeErrors(r.ir);
+          if (errors.length) console.log(`  ${errors.length} type error${errors.length > 1 ? "s" : ""} (the game still runs it; open it in the editor to see where):\n  ${errors.join("\n  ")}`);
+        }
         else {
           failed = true;
           console.log(`${file}: rejected\n  ${r.errors.join("\n  ")}`);
@@ -67,7 +81,7 @@ function main() {
     }
     case "run": {
       if (args.length < 2) return console.log(USAGE);
-      const players = args.map((file) => ({ name: basename(file).replace(/\.eyg$/, ""), source: readFileSync(file, "utf8") }));
+      const players = args.map((file) => ({ name: basename(file).replace(/\.(eyg|json)$/, ""), ...program(file) }));
       const rules = values.ticks ? { maxTicks: Number(values.ticks) } : {};
       const match = new Match({ players, seed: Number(values.seed ?? 1), rules });
       match.run((m) => {
@@ -82,6 +96,10 @@ function main() {
         writeFileSync(values.replay, JSON.stringify(replay));
         console.log(`  replay written to ${values.replay}`);
       }
+      return;
+    }
+    case "print": {
+      process.stdout.write(print(JSON.parse(readFileSync(args[0], "utf8"))));
       return;
     }
     case "verify": {

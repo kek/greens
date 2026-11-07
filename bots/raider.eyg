@@ -113,7 +113,7 @@ let enemy_corner = {x: !int_subtract(view.width, 2), y: !int_subtract(view.heigh
 
 let step_to = (target) -> {
   match perform Move(towards(me, target)) {
-    Ok(_) -> { {} }
+    Ok(_) -> { Ok({}) }
     | (_) -> { perform Move(random_direction({})) }
   }
 }

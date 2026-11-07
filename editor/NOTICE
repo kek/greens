@@ -1,0 +1,19 @@
+viewer/editor.js is built from this directory by build.sh. Besides the code
+in src/, it bundles the following third-party Gleam packages, compiled to
+JavaScript. Each is used under its own licence.
+
+From the EYG language repository, https://github.com/CrowdHailer/eyg-lang,
+at commit 99c2ef5e1740df350663ee009eb3665797315090, Apache License 2.0:
+  morph, eyg_hub (gleam_hub), gleam_x, eyg_ir, eyg_analysis,
+  eyg_interpreter, eyg_parser
+
+From Hex, Apache License 2.0:
+  gleam_stdlib, gleam_json, gleam_javascript, gleam_http, gleam_fetch,
+  dag_json, multiformats, non_empty_list, houdini, splitter, glam, gbor,
+  ogre, filepath, exception, midas
+
+From Hex, MIT License:
+  lustre, gleb128, ieee_float
+
+Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
+MIT License: https://opensource.org/license/mit
