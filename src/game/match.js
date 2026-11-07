@@ -400,6 +400,8 @@ export class Match {
       seed: this.seed,
       rules: this.rules,
       players: this.players.map(recordProgram),
+      // How each player's own coordinates map onto the board.
+      perspectives: this.frames,
       map: render(this.grid, this.rules.width),
       patchCells: [...this.patches.keys()],
       frames: this.history,

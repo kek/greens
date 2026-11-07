@@ -50,6 +50,10 @@
   .eyg-editor { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .eyg-code { margin: 0; padding: 10px 12px; min-height: 120px; max-height: 520px; overflow: auto; cursor: pointer; }
   .eyg-code [style*="243, 208"] { color: #10251a; }
+  @media (prefers-color-scheme: dark) {
+    /* morph highlights the selection with an inline pale green; darken it so light text stays readable. */
+    .eyg-code [style*="243, 208"] { background-color: #23543c !important; color: var(--ink); }
+  }
   .eyg-status { border-top: 1px solid var(--line); padding: 8px 12px; }
   .eyg-status input { width: 100%; }
   .eyg-ok { color: var(--accent); }
@@ -105,9 +109,11 @@
         <button id="stepFwd" title="Next tick">▶</button>
         <input id="scrub" type="range" min="0" max="0" value="0">
         <span class="num" id="tickLabel">tick 0</span>
+        <select id="perspective" aria-label="Show the board as"></select>
         <select id="speed"><option value="4">slow</option><option value="12" selected>normal</option><option value="40">fast</option></select>
       </div>
       <p class="hash" id="hash">Load a replay to watch it.</p>
+      <p class="num" id="perspectiveNote">Every player sees the map as if they started in the north-west corner, so their North, East, South and West can differ from the board's. Choose a player above to see the board the way their bots do.</p>
     </section>
     <section>
       <h2>Log</h2>
@@ -146,10 +152,21 @@ const playerColor = (p) => css(`--p${p}`);
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 let replay = null, tick = 0, playing = false, timer = null;
 
+// How each player's coordinates map onto the board; see src/game/map.js.
+function frameOf(p) {
+  if (replay.perspectives) return replay.perspectives[p];
+  const n = replay.players.length;
+  const all = n === 2 ? [{ fx: false, fy: false }, { fx: true, fy: true }]
+    : [{ fx: false, fy: false }, { fx: true, fy: true }, { fx: true, fy: false }, { fx: false, fy: true }];
+  return all[p];
+}
+
 function load(r) {
   if (r.game !== "greens") throw new Error("Not a Greens replay");
   replay = r;
   tick = 0;
+  $("perspective").innerHTML = `<option value="-1">Board</option>` +
+    r.players.map((p, i) => `<option value="${i}">As ${escape(p.name)} sees it</option>`).join("");
   $("scrub").max = r.frames.length - 1;
   const res = r.result;
   $("outcome").textContent = res.draw ? (res.winners.length ? `Draw: ${res.winners.join(", ")}` : "Draw") : `Winner: ${res.winners[0]}`;
@@ -164,17 +181,23 @@ function draw() {
   canvas.width = w * size; canvas.height = h * size;
   const g = canvas.getContext("2d");
   const frame = replay.frames[tick];
+  // Mirror the board into the chosen player's frame, if any.
+  const view = Number($("perspective").value);
+  const vf = view >= 0 ? frameOf(view) : { fx: false, fy: false };
+  const tx = (x) => (vf.fx ? w - 1 - x : x);
+  const ty = (y) => (vf.fy ? h - 1 - y : y);
   g.fillStyle = css("--floor"); g.fillRect(0, 0, canvas.width, canvas.height);
   replay.map.forEach((row, y) => [...row].forEach((c, x) => {
-    if (c === "#") { g.fillStyle = css("--wall"); g.fillRect(x * size, y * size, size, size); }
+    if (c === "#") { g.fillStyle = css("--wall"); g.fillRect(tx(x) * size, ty(y) * size, size, size); }
   }));
   replay.patchCells.forEach((ci, i) => {
-    const x = ci % w, y = Math.floor(ci / w), a = frame.patches[i] / replay.rules.patchMax;
+    const x = tx(ci % w), y = ty(Math.floor(ci / w)), a = frame.patches[i] / replay.rules.patchMax;
     g.fillStyle = css("--patch"); g.globalAlpha = 0.15 + 0.85 * a;
     g.fillRect(x * size + 2, y * size + 2, size - 4, size - 4);
     g.globalAlpha = 1;
   });
-  for (const [id, player, x, y, hp, energy, action, dir, ok] of frame.bots) {
+  for (const [id, player, wx, wy, hp, energy, action, dir, ok] of frame.bots) {
+    const x = tx(wx), y = ty(wy);
     const cx = x * size + size / 2, cy = y * size + size / 2;
     g.fillStyle = playerColor(player);
     g.beginPath(); g.arc(cx, cy, size * 0.38, 0, Math.PI * 2); g.fill();
@@ -183,7 +206,11 @@ function draw() {
     g.fillText(String(energy), cx, cy + 1);
     for (let i = 0; i < hp; i++) { g.fillStyle = playerColor(player); g.fillRect(x * size + 3 + i * 5, y * size + 1, 4, 3); }
     if (action === 3 && dir >= 0) {
-      const [dx, dy] = DIRS[dir];
+      // Directions are recorded in the bot's own frame.
+      const bf = frameOf(player);
+      let [dx, dy] = DIRS[dir];
+      if (bf.fx !== vf.fx) dx = -dx;
+      if (bf.fy !== vf.fy) dy = -dy;
       g.strokeStyle = ok ? css("--p0") : css("--muted"); g.lineWidth = 2;
       g.beginPath(); g.moveTo(cx + dx * size * 0.4, cy + dy * size * 0.4); g.lineTo(cx + dx * size * 0.9, cy + dy * size * 0.9); g.stroke();
     }
@@ -217,6 +244,7 @@ function setPlaying(on) {
 
 $("play").onclick = () => { if (replay && tick >= replay.frames.length - 1) tick = 0; setPlaying(!playing); };
 $("speed").onchange = () => setPlaying(playing);
+$("perspective").onchange = draw;
 $("stepBack").onclick = () => { setPlaying(false); tick = Math.max(0, tick - 1); draw(); };
 $("stepFwd").onclick = () => { setPlaying(false); if (replay) tick = Math.min(replay.frames.length - 1, tick + 1); draw(); };
 $("scrub").oninput = (e) => { tick = Number(e.target.value); draw(); };
@@ -350,7 +378,7 @@ if (location.protocol.startsWith("http")) {
     loadEditorScript().then(() => {
       $("editorPanel").hidden = false;
       // Start with the template open so the editor is visible straight away.
-      if (!location.hash) $("editOpen").click();
+      $("editOpen").click();
     }).catch((err) => console.error("Could not load the bot editor", err));
     if (location.hash.length > 1) openMatch(location.hash.slice(1)).catch(() => {});
   }).catch(() => {});
