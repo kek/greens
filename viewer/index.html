@@ -19,6 +19,7 @@
   header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
   header span { color: var(--muted); }
+  .note { max-width: 1200px; margin: 12px auto 0; padding: 0 16px; color: var(--muted); }
   main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
   @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
@@ -76,24 +77,9 @@
   <h1>Greens</h1>
   <span>Programs written in EYG play on the server. Every match can be replayed and checked.</span>
 </header>
+<p id="fileNote" class="note" hidden>Opened as a file, this page can only play replay files. Run <code>node bin/greens.js serve</code> and open http://127.0.0.1:8080 to edit bots and start matches.</p>
 <main>
   <div>
-    <section>
-      <canvas id="board" width="480" height="480"></canvas>
-      <div class="controls">
-        <button id="play">Play</button>
-        <button id="stepBack" title="Previous tick">◀</button>
-        <button id="stepFwd" title="Next tick">▶</button>
-        <input id="scrub" type="range" min="0" max="0" value="0">
-        <span class="num" id="tickLabel">tick 0</span>
-        <select id="speed"><option value="4">slow</option><option value="12" selected>normal</option><option value="40">fast</option></select>
-      </div>
-      <p class="hash" id="hash">Load a replay to watch it.</p>
-    </section>
-    <section>
-      <h2>Log</h2>
-      <div id="logs"></div>
-    </section>
     <section id="editorPanel" hidden>
       <h2>Bot editor</h2>
       <div class="row">
@@ -110,6 +96,22 @@
         <summary>Text form</summary>
         <pre id="editText"></pre>
       </details>
+    </section>
+    <section>
+      <canvas id="board" width="480" height="480"></canvas>
+      <div class="controls">
+        <button id="play">Play</button>
+        <button id="stepBack" title="Previous tick">◀</button>
+        <button id="stepFwd" title="Next tick">▶</button>
+        <input id="scrub" type="range" min="0" max="0" value="0">
+        <span class="num" id="tickLabel">tick 0</span>
+        <select id="speed"><option value="4">slow</option><option value="12" selected>normal</option><option value="40">fast</option></select>
+      </div>
+      <p class="hash" id="hash">Load a replay to watch it.</p>
+    </section>
+    <section>
+      <h2>Log</h2>
+      <div id="logs"></div>
     </section>
   </div>
   <div>
@@ -341,10 +343,15 @@ function loadEditorScript() {
   });
 }
 
+if (!location.protocol.startsWith("http")) $("fileNote").hidden = false;
 if (location.protocol.startsWith("http")) {
   refresh().then(() => {
     $("serverPanel").hidden = false;
-    loadEditorScript().then(() => { $("editorPanel").hidden = false; }).catch(() => {});
+    loadEditorScript().then(() => {
+      $("editorPanel").hidden = false;
+      // Start with the template open so the editor is visible straight away.
+      if (!location.hash) $("editOpen").click();
+    }).catch((err) => console.error("Could not load the bot editor", err));
     if (location.hash.length > 1) openMatch(location.hash.slice(1)).catch(() => {});
   }).catch(() => {});
 }
